@@ -1,0 +1,113 @@
+package edu.xjtlu.cpt301.wordcount;
+
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.StringTokenizer;
+
+public class FindKeyWord extends Configured implements Tool {
+	//Main Function
+	public static void main(String[] args) throws Exception {
+	      System.out.println(Arrays.toString(args));
+	      int res = ToolRunner.run(new Configuration(), new FindKeyWord(), args);
+	      System.exit(res);
+	}
+	   @Override
+	   public int run(String[] args) throws Exception {
+	      System.out.println(Arrays.toString(args));
+	      Job job = new Job(getConf(), "WordCount");
+	      job.setJarByClass(FindKeyWord.class);
+	      job.setOutputKeyClass(Text.class);
+	      job.setOutputValueClass(IntWritable.class);
+
+	      job.setMapperClass(FindMapper.class);
+	      job.setReducerClass(FindReduce.class);
+	      job.setInputFormatClass(TextInputFormat.class);
+	      job.setOutputFormatClass(TextOutputFormat.class);
+	      FileInputFormat.addInputPath(job, new Path(args[0]));
+	      FileOutputFormat.setOutputPath(job, new Path(args[1]));
+	      job.waitForCompletion(true);
+	      return 0;
+	   }
+	 //Mapper Class
+     public static class FindMapper extends Mapper<LongWritable, Text, Text, IntWritable> {
+
+        private final static IntWritable ONE = new IntWritable(1);
+	    private Text word = new Text();
+        
+	    //Map Function
+        @Override
+        public void map(LongWritable key, Text value,
+                           Context context) throws IOException, InterruptedException {
+          	/**Split the text of each line,
+        	    * map the line as key**/
+            String token = value.toString();
+            String wordLine[] = token.split("\n");
+            for (int i=0;i<wordLine.length;i++){
+            	    if(wordLine[i]!=null){
+            		    word = new Text(wordLine[i]);
+            		    context.write(word, ONE);
+            	    }
+            }
+        }
+    }
+    //Reducer Class
+    public static class FindReduce extends Reducer<Text, IntWritable, Text, Text> {
+	      private static final Text Found = new Text(" ");
+		   
+	      //Reduce Function
+		   @Override
+	      public void reduce(Text key, Iterable<IntWritable> values, Context context)
+	              throws IOException, InterruptedException {
+			   /**Search for the key word 'torture' 
+			    * reduce to only text with that contains the word **/
+			   for (IntWritable value:values){
+				   StringTokenizer itr = new StringTokenizer(key.toString());
+				   String finding = new String();
+				   String findingNext=new String();
+				   
+				   if(itr.hasMoreTokens()){
+				   finding = itr.nextToken();
+				   findingNext = finding;
+				   }
+				   while(itr.hasMoreTokens()){
+					   finding = findingNext;
+					   findingNext = itr.nextToken();
+					   if(finding.equals("torture")){
+						   context.write(key,Found);
+					   }
+					   if(!itr.hasMoreTokens()){   
+					   }
+				   }
+			   } 
+	      }
+           public static String removePunctuation(String s){
+	    	      /**Remove all punctuation and non-alphabet characters.
+	    	       * Including all numbers and character such as "*_" 
+	    	       * **/
+	    	      Pattern alphabet = Pattern.compile("[^a-z A-Z]");
+	    	      Matcher found = alphabet.matcher(s);
+	    	      String removed = found.replaceAll("");
+	    	      return removed;
+	      }
+	   }
+    }
+
+
+
+
+
