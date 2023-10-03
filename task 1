@@ -1,0 +1,186 @@
+package edu.xjtlu.cpt301.wordcount;
+
+import java.io.IOException;
+import java.util.Arrays;
+import java.util.Iterator;
+import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.conf.Configured;
+import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.io.IntWritable;
+import org.apache.hadoop.io.LongWritable;
+import org.apache.hadoop.io.Text;
+import org.apache.hadoop.io.WritableComparator;
+import org.apache.hadoop.mapreduce.Job;
+import org.apache.hadoop.mapreduce.Mapper;
+import org.apache.hadoop.mapreduce.Reducer;
+import org.apache.hadoop.mapreduce.Mapper.Context;
+import org.apache.hadoop.mapreduce.lib.input.FileInputFormat;
+import org.apache.hadoop.mapreduce.lib.input.TextInputFormat;
+import org.apache.hadoop.mapreduce.lib.jobcontrol.ControlledJob;
+import org.apache.hadoop.mapreduce.lib.output.FileOutputFormat;
+import org.apache.hadoop.mapreduce.lib.output.TextOutputFormat;
+import org.apache.hadoop.util.Tool;
+import org.apache.hadoop.util.ToolRunner;
+import java.util.StringTokenizer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import org.apache.hadoop.mapreduce.lib.input.KeyValueTextInputFormat;
+import org.apache.hadoop.mapred.jobcontrol.JobControl;
+
+public class BigramCount extends Configured implements Tool {
+	//Main Function
+	public static void main(String[] args) throws Exception {
+		System.out.println(Arrays.toString(args));
+        int res = ToolRunner.run(new BigramCount(), args);
+        System.exit(res);
+    }
+    public int run(String[] args) throws Exception {
+    	    System.out.println(Arrays.toString(args));
+    	    //Setting two job controls for two jobs.
+        JobControl jobControl = new JobControl("jobChain");
+        Configuration conf1 = getConf();
+        Job job1 = Job.getInstance(conf1);
+        job1.setJarByClass(BigramCount.class);
+        job1.setJobName("bigram count");
+        FileInputFormat.setInputPaths(job1, new Path(args[0]));
+        FileOutputFormat.setOutputPath(job1, new Path(args[1] + "/temp"));
+
+        job1.setMapperClass(WordCountMapper1.class);
+        job1.setReducerClass(WordCountReducer1.class);
+        job1.setCombinerClass(WordCountReducer1.class);
+        job1.setOutputKeyClass(Text.class);
+        job1.setOutputValueClass(IntWritable.class);
+        ControlledJob controlledJob1 = new ControlledJob(conf1);
+        controlledJob1.setJob(job1);
+
+        jobControl.addJob(controlledJob1);
+        Configuration conf2 = getConf();
+        Job job2 = Job.getInstance(conf2);
+        job2.setJarByClass(BigramCount.class);
+        job2.setJobName("bigram descending");
+        FileInputFormat.setInputPaths(job2, new Path(args[1] + "/temp"));
+        FileOutputFormat.setOutputPath(job2, new Path(args[1] + "/output"));
+
+        job2.setMapperClass(WordCountMapper2.class);
+        job2.setReducerClass(WordCountReducer2.class);
+        job2.setCombinerClass(WordCountReducer2.class);
+        job2.setOutputKeyClass(IntWritable.class);
+        job2.setOutputValueClass(Text.class);
+        job2.setInputFormatClass(KeyValueTextInputFormat.class);
+        ControlledJob controlledJob2 = new ControlledJob(conf2);
+        controlledJob2.setJob(job2);
+        // set job2 to depend on job1
+        controlledJob2.addDependingJob(controlledJob1);
+        // add the job2 to the job control
+        jobControl.addJob(controlledJob2);
+        Thread jobControlThread = new Thread(jobControl);
+        jobControlThread.start();
+
+        while (!jobControl.allFinished()) {
+            try {
+                Thread.sleep(5000);
+            } catch (Exception e) {
+
+            }
+        }
+        System.exit(0);
+        return (job1.waitForCompletion(true) ? 0 : 1);
+    }
+    
+    //First Mapper Class
+    public static class WordCountMapper1 extends Mapper<LongWritable, Text, Text, IntWritable> {
+	   
+    	      private final static IntWritable ONE = new IntWritable(1);
+	      private Text word = new Text();
+	      //First Map function
+	      @Override
+	      public void map(LongWritable key, Text value, Context context)
+	              throws IOException, InterruptedException {
+	    	      /**Map all words in pairs into key and all values to 1.
+	    	      * **/
+	    	      String token = removePunctuation(value.toString());
+	    	      String first = new String();
+	    	      String second = new String();
+	    	  
+	    	      StringTokenizer itr = new StringTokenizer(token);
+	    	      if(itr.hasMoreTokens()){
+	    		      first = itr.nextToken();
+	    		      second = first;	         
+	           }
+	    	      while(itr.hasMoreTokens()){
+	    		      first = second;
+	    		      second = itr.nextToken();
+	    		      first = first+" "+second; //combine bigram in one key
+	    		      word = new Text(first.toLowerCase());
+	    		      context.write(word, ONE);
+	    		  
+	    		      if(!itr.hasMoreTokens()){
+		    		     //Don't do anything if there are no more tokens 
+		    	      }
+	    	      }
+	      }
+	      
+	      public static String removePunctuation(String s){
+	    	      /**Remove all punctuation and non-alphabet characters.
+	    	       * Including all numbers and character such as "*_" 
+	    	       * **/
+	    	      Pattern alphabet = Pattern.compile("[^a-z A-Z]");
+	    	      Matcher found = alphabet.matcher(s);
+	    	      String removed = found.replaceAll(" ");
+	    	      return removed;
+	      }
+    }
+    
+    //First Reducer Class
+    public static class WordCountReducer1 extends Reducer<Text, IntWritable, Text, IntWritable> {
+    	private static final IntWritable SUM = new IntWritable();
+		   
+     	//First Reduce Function
+		   @Override
+	      public void reduce(Text key, Iterable<IntWritable> values, Context context)
+	              throws IOException, InterruptedException {
+			   /**Reduce all the same pair of bigrams into one key,
+			    * Add all sum together.
+			    * **/
+	         int sum = 0;
+	         Iterator<IntWritable> iter = values.iterator();
+	         while(iter.hasNext()){
+	        	 sum += iter.next().get();
+	         }
+	         SUM.set(sum);
+	         context.write(key,SUM);
+	      }
+    }
+
+    //Second Mapper Class
+    public static class WordCountMapper2 extends Mapper< Text, Text, IntWritable, Text> {
+
+        IntWritable frequency = new IntWritable();
+        //Second map function
+        @Override
+        public void map(Text key, Text value, Context context)
+                throws IOException, InterruptedException {
+         	/**Map the previous value as key and key as value. 
+        	    * The map now is still in alphabetical order of bigram **/
+            int newVal = Integer.parseInt(value.toString());
+            frequency.set(-1*newVal);
+            context.write(frequency, key);
+        }
+    }
+    //Second Reducer Class
+    public static class WordCountReducer2 extends Reducer<IntWritable, Text, IntWritable, Text> {
+        Text word = new Text();
+
+        //Second Reducer Class
+        @Override
+        public void reduce(IntWritable key, Iterable<Text> values, Context context)
+                throws IOException, InterruptedException {
+        	 /**Reduce the map and it will be sorted in the frequency order. **/
+            for (Text value : values) {
+                word = value;
+                context.write(key, word);
+            }
+        }
+    }
+}
+
